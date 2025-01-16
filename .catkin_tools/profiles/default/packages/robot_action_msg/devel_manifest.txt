@@ -1,0 +1,20 @@
+robot_action_msg
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/cmake.lock /home/xbot/xbot_guest_ws/devel/./cmake.lock
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/share/roseus/ros/robot_action_msg/manifest.l /home/xbot/xbot_guest_ws/devel/share/roseus/ros/robot_action_msg/manifest.l
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/share/roseus/ros/robot_action_msg/msg/robot_acts.l /home/xbot/xbot_guest_ws/devel/share/roseus/ros/robot_action_msg/msg/robot_acts.l
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/share/robot_action_msg/cmake/robot_action_msgConfig.cmake /home/xbot/xbot_guest_ws/devel/share/robot_action_msg/cmake/robot_action_msgConfig.cmake
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/share/robot_action_msg/cmake/robot_action_msg-msg-extras.cmake /home/xbot/xbot_guest_ws/devel/share/robot_action_msg/cmake/robot_action_msg-msg-extras.cmake
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/share/robot_action_msg/cmake/robot_action_msgConfig-version.cmake /home/xbot/xbot_guest_ws/devel/share/robot_action_msg/cmake/robot_action_msgConfig-version.cmake
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/share/robot_action_msg/cmake/robot_action_msg-msg-paths.cmake /home/xbot/xbot_guest_ws/devel/share/robot_action_msg/cmake/robot_action_msg-msg-paths.cmake
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/share/gennodejs/ros/robot_action_msg/_index.js /home/xbot/xbot_guest_ws/devel/share/gennodejs/ros/robot_action_msg/_index.js
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/share/gennodejs/ros/robot_action_msg/msg/robot_acts.js /home/xbot/xbot_guest_ws/devel/share/gennodejs/ros/robot_action_msg/msg/robot_acts.js
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/share/gennodejs/ros/robot_action_msg/msg/_index.js /home/xbot/xbot_guest_ws/devel/share/gennodejs/ros/robot_action_msg/msg/_index.js
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/share/common-lisp/ros/robot_action_msg/msg/_package.lisp /home/xbot/xbot_guest_ws/devel/share/common-lisp/ros/robot_action_msg/msg/_package.lisp
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/share/common-lisp/ros/robot_action_msg/msg/_package_robot_acts.lisp /home/xbot/xbot_guest_ws/devel/share/common-lisp/ros/robot_action_msg/msg/_package_robot_acts.lisp
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/share/common-lisp/ros/robot_action_msg/msg/robot_action_msg-msg.asd /home/xbot/xbot_guest_ws/devel/share/common-lisp/ros/robot_action_msg/msg/robot_action_msg-msg.asd
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/share/common-lisp/ros/robot_action_msg/msg/robot_acts.lisp /home/xbot/xbot_guest_ws/devel/share/common-lisp/ros/robot_action_msg/msg/robot_acts.lisp
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/include/robot_action_msg/robot_acts.h /home/xbot/xbot_guest_ws/devel/include/robot_action_msg/robot_acts.h
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/lib/python3/dist-packages/robot_action_msg/__init__.py /home/xbot/xbot_guest_ws/devel/lib/python3/dist-packages/robot_action_msg/__init__.py
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/lib/python3/dist-packages/robot_action_msg/msg/_robot_acts.py /home/xbot/xbot_guest_ws/devel/lib/python3/dist-packages/robot_action_msg/msg/_robot_acts.py
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/lib/python3/dist-packages/robot_action_msg/msg/__init__.py /home/xbot/xbot_guest_ws/devel/lib/python3/dist-packages/robot_action_msg/msg/__init__.py
+/home/xbot/xbot_guest_ws/devel/.private/robot_action_msg/lib/pkgconfig/robot_action_msg.pc /home/xbot/xbot_guest_ws/devel/lib/pkgconfig/robot_action_msg.pc

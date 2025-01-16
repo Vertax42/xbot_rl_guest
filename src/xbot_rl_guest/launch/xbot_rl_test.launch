@@ -1,0 +1,8 @@
+<launch>
+      <arg name="handless" default="false"/>
+    <node name="xbot_rl_guest_node" pkg="xbot_rl_guest" type="xbot_rl_guest_node" output="screen">    
+    </node>
+    <param name="handless" value="$(arg handless)"/>
+    <!-- <node name="rviz" pkg="rviz" type="rviz" args="-d $(find vision_pro_teleop)/rviz/finger_tf.rviz"  /> -->
+    
+</launch>
