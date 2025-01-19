@@ -112,7 +112,6 @@ std::deque<std::vector<double>> hist_obs;
 std::deque<double> hist_yaw;
 
 std::ofstream obs_buffer;
-std::ofstream critic_obs_buffer;
 
 std::vector<double> measured_q_;
 std::vector<double> measured_v_;
@@ -694,6 +693,7 @@ void handleInput()
   system("stty cooked echo");
 }
 
+
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "xbot_rl_guest_node");
@@ -717,6 +717,8 @@ int main(int argc, char **argv)
     sub_ins_hand = nh.subscribe("/controllers/xbot_controller/ins_hand_state", 1, ins_hand_callback, ros::TransportHints().tcpNoDelay());
   }
 
+  HumanoidStateMachine state_machine(nh);
+  
   std::thread inputThread(handleInput);
   while (ros::ok())
   {
@@ -761,6 +763,7 @@ void ins_hand_callback(const std_msgs::Float64MultiArray::ConstPtr &msg)
 
   return;
 }
+
 void callback(const std_msgs::Float64MultiArray::ConstPtr &msg)
 {
 
