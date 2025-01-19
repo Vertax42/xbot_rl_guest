@@ -26,6 +26,7 @@
 
 #include <numeric>
 #include "log4z.h"
+#include "humanoid_state_machine.h"
 
 using namespace zsummer::log4z;
 const std::string model_path = "/home/xbot/policy_1.pt"; 
@@ -315,7 +316,7 @@ void sendJointCommand(std::vector<double> &pos_des,
   pub.publish(msg);
 }
 
-void update()
+void update(HumanoidStateMachine::State current_state, HumanoidStateMachine::State previous_state)
 {
 
   Command local_cmd;
@@ -349,48 +350,65 @@ void update()
   std::array<double, 3> proj_grav = quat_rotate_inverse(quat_est, GRAV);
   proj_grav[0] *= -1.;
 
-  // if (global_time > INITIAL_TIME && (damping_mode || !checkJointLimit(measured_q_) || proj_grav[2] > -0.8))
-  // {
-  //   if (proj_grav[2] > -0.8)
-  //   {
-  //     std::cout << "grav " << proj_grav[2] << std::endl;
-  //   }
+  if (global_time > INITIAL_TIME && (damping_mode || proj_grav[2] > -0.8))
+  {
+    if (proj_grav[2] > -0.8)
+    {
+      std::cout << "grav " << proj_grav[2] << std::endl;
+    }
 
-  //   if(!damping_mode)
-  //   {
-  //     std::cout << "joint limit" << std::endl;
-  //   }
+    if(!damping_mode)
+    {
+      std::cout << "joint limit" << std::endl;
+    }
 
-  //   std::cout << "damping" << std::endl;
-  //   damping_mode = true;
+    std::cout << "damping" << std::endl;
+    damping_mode = true;
 
-  //   // TODO(wyj): Check the scake of the Kd.
-  //   for (int i = 0; i < N_JOINTS; i++)
-  //   {
-  //     kp[i] = 0.0;
-  //     kd[i] = 2.0;
-  //     pos_des[i] = 0.0;
-  //     vel_des[i] = 0.0;
-  //     torque[i] = 0.0;
-  //   }
+    // TODO(wyj): Check the scake of the Kd.
+    for (int i = 0; i < N_JOINTS; i++)
+    {
+      kp[i] = 0.0;
+      kd[i] = 4.0;
+      pos_des[i] = 0.0;
+      vel_des[i] = 0.0;
+      torque[i] = 0.0;
+    }
 
-  //   sendJointCommand(pos_des, vel_des, kp, kd, torque);
-  //   ros::shutdown();
-  //   return;
-  // }
+    sendJointCommand(pos_des, vel_des, kp, kd, torque);
+    ros::shutdown();
+    return;
+  }
 
   global_time++;
 
   // printf("GLOBAL TIME: %d\n", global_time);
 
   // Do nothing.
-  if (global_time < STARTUP_TIME)
-  {
-    initial_pos = measured_q_;
-
-    sendJointCommand(pos_des, vel_des, kp, kd, torque);
-    return;
+  switch(current_state) {
+    case HumanoidStateMachine::DAMPING:
+      LOGD("DAMPING MODE");
+      initial_pos = measured_q_;
+      sendJointCommand(pos_des, vel_des, kp, kd, torque);
+      return;
+    case HumanoidStateMachine::ZERO_POS:
+      LOGD("ZERO POS MODE");
+      return;
+    case HumanoidStateMachine::STAND:
+      LOGD("STAND MODE");
+      return;
+    case HumanoidStateMachine::WALK:
+      LOGD("WALK MODE");
+      break;
   }
+  
+  // if (global_time < STARTUP_TIME)
+  // {
+  //   initial_pos = measured_q_;
+
+  //   sendJointCommand(pos_des, vel_des, kp, kd, torque);
+  //   return;
+  // }
 
   // Set to initial position.
   if (global_time < INITIAL_TIME)
@@ -718,12 +736,14 @@ int main(int argc, char **argv)
   }
 
   HumanoidStateMachine state_machine(nh);
-  
+
   std::thread inputThread(handleInput);
   while (ros::ok())
   {
     auto start_time = std::chrono::steady_clock::now();
-    update();
+    auto current_state = state_machine.getCurrentState(); // Get the current state of the state machine
+    auto previous_state = state_machine.getPreviousState(); // Get the previous state of the state machine
+    update(current_state, previous_state);
 
     auto duration = std::chrono::steady_clock::now() - start_time;
     auto micro_sec = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();

@@ -1,5 +1,5 @@
 <launch>
-      <arg name="handless" default="false"/>
+      <arg name="handless" default="true"/>
     <node name="xbot_rl_guest_node" pkg="xbot_rl_guest" type="xbot_rl_guest_node" output="screen">    
     </node>
     <param name="handless" value="$(arg handless)"/>
