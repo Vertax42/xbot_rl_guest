@@ -1,0 +1,271 @@
+default_joints:
+  - index: 0
+    name: left_shoulder_pitch_joint
+    pos_des: 0.0
+    vel_des: 0.0
+    kp: 300.0
+    kd: 20.0
+    torque: 5.0
+    upper_limit: 1.4 # 90 degrees in radians
+    lower_limit: -3.14 # -90 degrees in radians
+  - index: 1
+    name: left_shoulder_roll_joint
+    pos_des: 0.5
+    vel_des: 0.1
+    kp: 300.0
+    kd: 20.0
+    torque: 6.0
+    upper_limit: 0.37
+    lower_limit: -2.79
+  - index: 2
+    name: left_arm_yaw_joint
+    pos_des: -0.5
+    vel_des: -0.1
+    kp: 200.0
+    kd: 20.0
+    torque: 7.0
+    upper_limit: 2.09
+    lower_limit: -2.09
+  - index: 3
+    name: left_elbow_pitch_joint
+    pos_des: 0.0
+    vel_des: 0.0
+    kp: 100.0
+    kd: 10.0
+    torque: 5.0
+    upper_limit: 2.18
+    lower_limit: -0.26
+  - index: 4
+    name: left_elbow_yaw_joint
+    pos_des: 0.5
+    vel_des: 0.1
+    kp: 150.0
+    kd: 15.0
+    torque: 6.0
+    upper_limit: 2.09
+    lower_limit: -2.09
+  - index: 5
+    name: left_wrist_roll_joint
+    pos_des: -0.5
+    vel_des: -0.1
+    kp: 200.0
+    kd: 20.0
+    torque: 7.0
+    upper_limit: 1.92
+    lower_limit: -1.92
+  - index: 6
+    name: left_wrist_yaw_joint
+    pos_des: -0.5
+    vel_des: -0.1
+    kp: 200.0
+    kd: 20.0
+    torque: 7.0
+    upper_limit: 2.09
+    lower_limit: -2.09
+  - index: 7
+    name: neck_yaw_joint
+    pos_des: -0.5
+    vel_des: -0.1
+    kp: 200.0
+    kd: 20.0
+    torque: 7.0
+    upper_limit: 1.57
+    lower_limit: -1.57
+  - index: 8
+    name: neck_pitch_joint
+    pos_des: -0.5
+    vel_des: -0.1
+    kp: 200.0
+    kd: 20.0
+    torque: 7.0
+    upper_limit: 0.44
+    lower_limit: -0.44
+  - index: 9
+    name: right_shoulder_pitch_joint
+    pos_des: 0.0
+    vel_des: 0.0
+    kp: 100.0
+    kd: 10.0
+    torque: 5.0
+    upper_limit: 3.14
+    lower_limit: -1.4
+  - index: 10
+    name: right_shoulder_roll_joint
+    pos_des: 0.5
+    vel_des: 0.1
+    kp: 150.0
+    kd: 15.0
+    torque: 6.0
+    upper_limit: 2.79
+    lower_limit: -0.37
+  - index: 11
+    name: right_arm_yaw_joint
+    pos_des: -0.5
+    vel_des: -0.1
+    kp: 200.0
+    kd: 20.0
+    torque: 7.0
+    upper_limit: 2.09
+    lower_limit: -2.09
+  - index: 12
+    name: right_elbow_pitch_joint
+    pos_des: 0.0
+    vel_des: 0.0
+    kp: 100.0
+    kd: 10.0
+    torque: 5.0
+    upper_limit: 0.26
+    lower_limit: -2.18
+  - index: 13
+    name: right_elbow_yaw_joint
+    pos_des: 0.5
+    vel_des: 0.1
+    kp: 150.0
+    kd: 15.0
+    torque: 6.0
+    upper_limit: 2.09
+    lower_limit: -2.09
+  - index: 14
+    name: right_wrist_roll_joint
+    pos_des: -0.5
+    vel_des: -0.1
+    kp: 200.0
+    kd: 20.0
+    torque: 7.0
+    upper_limit: 1.92
+    lower_limit: -1.92
+  - index: 15
+    name: right_wrist_yaw_joint
+    pos_des: -0.5
+    vel_des: -0.1
+    kp: 200.0
+    kd: 20.0
+    torque: 7.0
+    upper_limit: 2.09
+    lower_limit: -2.09
+  - index: 16
+    name: waist_yaw_joint
+    pos_des: -0.5
+    vel_des: -0.1
+    kp: 200.0
+    kd: 40.0
+    torque: 7.0
+    upper_limit: 1.57
+    lower_limit: -1.57
+  - index: 17
+    name: waist_roll_joint
+    pos_des: -0.5
+    vel_des: -0.1
+    kp: 200.0
+    kd: 20.0
+    torque: 7.0
+    upper_limit: 0.26
+    lower_limit: -0.26
+  - index: 18
+    name: left_leg_roll_joint
+    pos_des: 0.0
+    vel_des: 0.0
+    kp: 100.0
+    kd: 10.0
+    torque: 5.0
+    upper_limit: 1.57
+    lower_limit: -0.44
+  - index: 19
+    name: left_leg_yaw_joint
+    pos_des: 0.5
+    vel_des: 0.1
+    kp: 150.0
+    kd: 15.0
+    torque: 6.0
+    upper_limit: 1.05
+    lower_limit: -1.05
+  - index: 20
+    name: left_leg_pitch_joint
+    pos_des: -0.5
+    vel_des: -0.1
+    kp: 350.0
+    kd: 20.0
+    torque: 7.0
+    upper_limit: 1.31
+    lower_limit: -1.57
+  - index: 21
+    name: left_knee_joint
+    pos_des: 0.0
+    vel_des: 0.0
+    kp: 350.0
+    kd: 10.0
+    torque: 5.0
+    upper_limit: 1.1
+    lower_limit: -1.05
+  - index: 22
+    name: left_ankle_pitch_joint
+    pos_des: 0.5
+    vel_des: 0.1
+    kp: 15.0
+    kd: 10.0
+    torque: 6.0
+    upper_limit: 0.87
+    lower_limit: -0.7
+  - index: 23
+    name: left_ankle_roll_joint
+    pos_des: -0.5
+    vel_des: -0.1
+    kp: 15.0
+    kd: 10.0
+    torque: 7.0
+    upper_limit: 0.44
+    lower_limit: -0.44
+  - index: 24
+    name: right_leg_roll_joint
+    pos_des: 0.0
+    vel_des: 0.0
+    kp: 100.0
+    kd: 10.0
+    torque: 5.0
+    upper_limit: 0.44
+    lower_limit: -1.57
+  - index: 25
+    name: right_leg_yaw_joint
+    pos_des: 0.5
+    vel_des: 0.1
+    kp: 150.0
+    kd: 15.0
+    torque: 6.0
+    upper_limit: 1.05
+    lower_limit: -1.05
+  - index: 26
+    name: right_leg_pitch_joint
+    pos_des: -0.5
+    vel_des: -0.1
+    kp: 300.0
+    kd: 20.0
+    torque: 7.0
+    upper_limit: 1.57
+    lower_limit: -1.31
+  - index: 27
+    name: right_knee_joint
+    pos_des: 0.0
+    vel_des: 0.0
+    kp: 350.0
+    kd: 10.0
+    torque: 5.0
+    upper_limit: 1.05
+    lower_limit: -1.1
+  - index: 28
+    name: right_ankle_pitch_joint
+    pos_des: 0.5
+    vel_des: 0.1
+    kp: 15.0
+    kd: 10.0
+    torque: 6.0
+    upper_limit: 0.7
+    lower_limit: -0.87
+  - index: 29
+    name: right_ankle_roll_joint
+    pos_des: -0.5
+    vel_des: -0.1
+    kp: 15.0
+    kd: 10.0
+    torque: 7.0
+    upper_limit: 0.44
+    lower_limit: -0.44

@@ -47,6 +47,8 @@ constexpr int N_SINGLE_INS_HAND_JOINT = 6;
 const float ins_hand_upper_from_thumb[12] = {2.878, 0.9878, 3.0718, 3.0718, 3.0718, 3.0718, 2.878, 0.9878, 3.0718, 3.0718, 3.0718, 3.0718}; // 上限，从大拇指开始，左手在前
 const float ins_hand_lower_from_thumb[12] = {1.58825, -0.2094, 0.349, 0.349, 0.349, 0.349, 1.58825, -0.2094, 0.349, 0.349, 0.349, 0.349};   // 下限，从大拇指开始，左手在前
 bool handless_ = false;
+bool is_transitioning = false;
+int transition_start_cycle = 0;
 void handsNormalize(const std::vector<double> &hand_pos, std::vector<double> &hand_pos_norm)
 {
   if ((hand_pos.size() != 12) || (hand_pos_norm.size() != 12))
@@ -100,8 +102,19 @@ struct EulerAngle
   double roll, pitch, yaw;
 };
 
+struct JointConfig {
+    int id;
+    std::string name;
+    double pos_des;
+    double vel_des;
+    double kp;
+    double kd;
+    double torque;
+    double upper_limit;
+    double lower_limit;
+};
+
 int global_time;
-bool damping_mode;
 
 std::vector<torch::jit::IValue> tensor;
 torch::Tensor out;
@@ -192,29 +205,65 @@ std::array<double, 3> quat_rotate_inverse(const std::array<double, 4> &quat,
   return proj_vel;
 }
 
-bool checkJointLimit(const std::vector<double> &q)
+bool loadJointConfigs(ros::NodeHandle &nh, const std::string &param_name, std::vector<JointConfig> &default_joints)
 {
-  //   return true;
-
-  for (int i = 0; i < N_JOINTS; i++)
-  {
-    if (i < N_HAND_JOINTS)
+    XmlRpc::XmlRpcValue joint_list;
+    if(!nh.getParam(param_name, joint_list))
     {
-      if ((i == 1 || i == 10) && (q[6 + i] < -0.05 || q[6 + i] > 0.05))
-      {
+        LOGE("Failed to load joint configurations from parameter server!");
         return false;
-      }
-      continue;
     }
 
-  }
-  return true;
+    if(joint_list.getType() != XmlRpc::XmlRpcValue::TypeArray)
+    {
+        LOGE("Joint configurations parameter is not an array!");
+        return false;
+    }
+
+    for(int i = 0; i < joint_list.size(); ++i)
+    {
+        XmlRpc::XmlRpcValue &joint = joint_list[i];
+        JointConfig config;
+        config.id = static_cast<int>(joint["index"]); // 读取 index
+        config.name = static_cast<std::string>(joint["name"]);
+        config.pos_des = static_cast<double>(joint["pos_des"]);
+        config.vel_des = static_cast<double>(joint["vel_des"]);
+        config.kp = static_cast<double>(joint["kp"]);
+        config.kd = static_cast<double>(joint["kd"]);
+        config.torque = static_cast<double>(joint["torque"]);
+        config.upper_limit = static_cast<double>(joint["upper_limit"]);
+        config.lower_limit = static_cast<double>(joint["lower_limit"]);
+        // LOGFMTD("Joint index: %d, name: %s", config.id, config.name.c_str());
+        default_joints.push_back(config);
+    }
+
+    LOGFMTI("Loaded %lu joint configurations successed!", default_joints.size());
+    return true;
+}
+
+bool is_valid_joint(std::vector<double> &measured_q, std::vector<JointConfig> &default_joint, float scale)
+{
+    if(measured_q.size() != 36)
+    {
+        LOGE("Measured joint position size is not 36!");
+        return false;
+    }
+
+    for(size_t i = 0; i < N_JOINTS; ++i)
+    {
+        if(measured_q[i + 6] < default_joint[i].lower_limit * scale || measured_q[i + 6] > default_joint[i].upper_limit * scale)
+        {
+            LOGFMTD("Joint %s is out of range: (%f, %f), current_measurement: %f", default_joint[i].name.c_str(), default_joint[i].lower_limit * scale, default_joint[i].upper_limit * scale, measured_q[i + 6]);
+            return false;
+        }
+    }
+
+    return true;
 }
 
 void init()
 {
   global_time = 0;
-  damping_mode = false;
 
   tmp_obs = torch::zeros({N_POLICY_OBS * N_HIST_LEN});
   tensor.push_back(torch::zeros({N_POLICY_OBS * N_HIST_LEN}));
@@ -258,8 +307,8 @@ void ins_hand_callback(const std_msgs::Float64MultiArray::ConstPtr &msg);
 void sendHandCommand(const std::vector<double> &pos_des_norm)
 {
   // hand state sequence : 0~12
-  // left thumb 0, left thumb 1,  left  index 1,  left middle 0, left ring 0, left pinky 0
-  // right thumb 0 ,right thumb 1, right  index 1,right middle 0,right ring 0, right pinky 0
+  // left thumb 0, left thumb 1, left index 1, left middle 0, left ring 0, left pinky 0
+  // right thumb 0, right thumb 1, right index 1, right middle 0, right ring 0, right pinky 0
   if (pos_des_norm.size() != 2 * N_SINGLE_INS_HAND_JOINT)
   {
     std::cout << "Invalid hand command size:" << pos_des_norm.size() << "!= " << 2 * N_SINGLE_INS_HAND_JOINT << std::endl;
@@ -284,6 +333,7 @@ void sendHandCommand(const std::vector<double> &pos_des_norm)
   ins_hand_cmd_pub.publish(msg);
   return;
 }
+
 void sendJointCommand(std::vector<double> &pos_des,
                       std::vector<double> &vel_des,
                       std::vector<double> &kp,
@@ -316,14 +366,16 @@ void sendJointCommand(std::vector<double> &pos_des,
   pub.publish(msg);
 }
 
-void update(HumanoidStateMachine::State current_state, HumanoidStateMachine::State previous_state)
+void update(HumanoidStateMachine &state_machine, std::vector<JointConfig> &default_joints)
 {
-
   Command local_cmd;
   {
     std::lock_guard<std::mutex> lock(cmd_mutex);
     local_cmd = user_cmd; // Copy the shared command to a local variable
   }
+
+  auto current_state = state_machine.getCurrentState();
+  auto previous_state = state_machine.getPreviousState();
 
   constexpr double PI = 3.14159265358979323846;
 
@@ -333,13 +385,15 @@ void update(HumanoidStateMachine::State current_state, HumanoidStateMachine::Sta
 
   static std::array<double, N_LEG_JOINTS> last_action;
   static std::vector<double> initial_pos;
-
+  static std::vector<double> stand_pos;
+  
   std::vector<double> pos_des, vel_des, kp, kd, torque;
   pos_des.resize(N_JOINTS);
   vel_des.resize(N_JOINTS);
   kp.resize(N_JOINTS);
   kd.resize(N_JOINTS);
   torque.resize(N_JOINTS);
+
   if(!handless_)
   {
     sendHandCommand(cmd_ins_hand_pos);
@@ -350,59 +404,151 @@ void update(HumanoidStateMachine::State current_state, HumanoidStateMachine::Sta
   std::array<double, 3> proj_grav = quat_rotate_inverse(quat_est, GRAV);
   proj_grav[0] *= -1.;
 
-  if (global_time > INITIAL_TIME && (damping_mode || proj_grav[2] > -0.8))
+  if((proj_grav[2] > -0.8) || !is_valid_joint(measured_q_, default_joints, 0.8))
+  // current_robot_state error
   {
-    if (proj_grav[2] > -0.8)
-    {
-      std::cout << "grav " << proj_grav[2] << std::endl;
+    if(proj_grav[2] > -0.8) {
+      LOGFMTE("Project gravity z: %f", proj_grav[2]);
+      LOGFMTE("Robot state error: robot is not standing on the ground! Robot shutdown!");
+    } else {
+      LOGE("Robot state error: measured_q_ is invalid!");
+      LOGE("Observed joint position reach limits! Robot shutdown!");
     }
-
-    if(!damping_mode)
-    {
-      std::cout << "joint limit" << std::endl;
-    }
-
-    std::cout << "damping" << std::endl;
-    damping_mode = true;
-
-    // TODO(wyj): Check the scake of the Kd.
+    LOGE("Robot state error: send joint command as shown below:");
+            
     for (int i = 0; i < N_JOINTS; i++)
     {
-      kp[i] = 0.0;
-      kd[i] = 4.0;
-      pos_des[i] = 0.0;
-      vel_des[i] = 0.0;
-      torque[i] = 0.0;
+      pos_des[i] = 0.0;  // target zero position
+      vel_des[i] = 0.0;  // target zero velocity
+      kp[i] = 0.0;       // close position control
+      kd[i] = 2.0;       // set damping value 2.0
+      torque[i] = 0.0;   // zero torque
+      // add logs for debug
+      LOGFMTD("Pub joint %d command message: pos_des = %.2f, vel_des = %.2f, kp = %.2f, kd = %.2f, torque = %.2f", i, pos_des[i], vel_des[i], kp[i], kd[i], torque[i]);
     }
-
     sendJointCommand(pos_des, vel_des, kp, kd, torque);
+    LOGE("ROS Shut Down!");
     ros::shutdown();
     return;
   }
 
   global_time++;
 
-  // printf("GLOBAL TIME: %d\n", global_time);
-
   // Do nothing.
   switch(current_state) {
     case HumanoidStateMachine::DAMPING:
-      LOGD("DAMPING MODE");
+      LOGD("DAMPING MODE LOGIC....................");
       initial_pos = measured_q_;
-      sendJointCommand(pos_des, vel_des, kp, kd, torque);
+      // sendJointCommand(pos_des, vel_des, kp, kd, torque);
       return;
     case HumanoidStateMachine::ZERO_POS:
-      LOGD("ZERO POS MODE");
-      return;
+      LOGD("ZERO POS MODE LOGIC....................");
+      if(previous_state == HumanoidStateMachine::DAMPING && !is_transitioning)
+      {
+        // start transition
+        is_transitioning = true;
+        transition_start_cycle = global_time;
+        initial_pos = measured_q_; // record the initial position of the transition
+      }
+      if(is_transitioning) {
+        double percentage = double(global_time - transition_start_cycle) / (INITIAL_TIME - STARTUP_TIME);
+        if(percentage > 1.0)
+        {
+          percentage = 1.0;
+          is_transitioning = false; // state transitioning down 
+          // after switch state，set previous_state to ZERO_POS
+          state_machine.setPreviousState(HumanoidStateMachine::ZERO_POS);
+          LOGI("Transition to ZERO_POS completed. Previous state updated from DAMPING to ZERO_POS.");
+        }
+
+        for (int i = 0; i < N_HAND_JOINTS; i++)
+        {
+          kp[i] = 200.0;
+          kd[i] = 10.0;
+          pos_des[i] = initial_pos[6 + i] * (1 - percentage);
+          vel_des[i] = 0.0;
+          torque[i] = 0.0;
+        }
+        
+        for (int i = 0; i < N_LEG_JOINTS; i++)
+        {
+          kp[N_HAND_JOINTS + i] = 300.0;
+          kd[N_HAND_JOINTS + i] = 10.0;
+          pos_des[N_HAND_JOINTS + i] = initial_pos[6 + N_HAND_JOINTS + i] + double(global_time - STARTUP_TIME) / double(INITIAL_TIME - STARTUP_TIME) * (0.0 - initial_pos[6 + N_HAND_JOINTS + i]);
+          vel_des[N_HAND_JOINTS + i] = 0.0;
+          torque[N_HAND_JOINTS + i] = 0.0;
+        }
+        // sendJointCommand(pos_des, vel_des, kp, kd, torque);
+        LOGFMTW("Transitioning from DAMPING mode to ZERO_POS mode, percentage: %.2f", percentage);
+        return;
+      } else {
+        EulerAngle euler = QuaternionToEuler(Quaternion{quat_est[0], quat_est[1], quat_est[2], quat_est[3]});
+        // base_yaw += euler.yaw * -1.0;
+        hist_yaw.push_back(euler.yaw * -1.0);
+
+        if (hist_yaw.size() > YAW_HIST_LENGTH)
+        {
+          hist_yaw.pop_front();
+        }
+        hist_yaw.pop_front();
+
+        for (int i = 0; i < N_HAND_JOINTS; i++)
+        {
+          kp[i] = 200.0;
+          kd[i] = 10.0;
+          pos_des[i] = 0.0;
+          vel_des[i] = 0.0;
+          torque[i] = 0.0;
+        }
+        for (int i = 0; i < N_LEG_JOINTS; i++)
+        {
+          kp[N_HAND_JOINTS + i] = 300.0;
+          kd[N_HAND_JOINTS + i] = 10.;
+          pos_des[N_HAND_JOINTS + i] = 0.0;
+          vel_des[N_HAND_JOINTS + i] = 0.0;
+          torque[N_HAND_JOINTS + i] = 0.0;
+        }
+        // sendJointCommand(pos_des, vel_des, kp, kd, torque);
+        LOGFMTD("Keep ZERO_POS MODE, global_time: %d", global_time);
+        return;
+    }
     case HumanoidStateMachine::STAND:
-      LOGD("STAND MODE");
+      LOGD("STAND MODE LOGIC....................");
+      EulerAngle euler = QuaternionToEuler(Quaternion{quat_est[0], quat_est[1], quat_est[2], quat_est[3]});
+      // base_yaw += euler.yaw * -1.0;
+      hist_yaw.push_back(euler.yaw * -1.0);
+
+      if (hist_yaw.size() > YAW_HIST_LENGTH)
+      {
+        hist_yaw.pop_front();
+      }
+      hist_yaw.pop_front();
+
+      for (int i = 0; i < N_HAND_JOINTS; i++)
+      {
+        kp[i] = 200.0;
+        kd[i] = 10.0;
+        pos_des[i] = 0.0;
+        vel_des[i] = 0.0;
+        torque[i] = 0.0;
+      }
+      for (int i = 0; i < N_LEG_JOINTS; i++)
+      {
+        kp[N_HAND_JOINTS + i] = 300.0;
+        kd[N_HAND_JOINTS + i] = 10.;
+        pos_des[N_HAND_JOINTS + i] = 0.0;
+        vel_des[N_HAND_JOINTS + i] = 0.0;
+        torque[N_HAND_JOINTS + i] = 0.0;
+      }
+      // sendJointCommand(pos_des, vel_des, kp, kd, torque);
+      LOGFMTD("Keep ZERO_POS MODE, global_time: %d", global_time);
       return;
     case HumanoidStateMachine::WALK:
       LOGD("WALK MODE");
       break;
   }
   
-  // if (global_time < STARTUP_TIME)
+  // if (global_time < STARTUP_TIME) // DAMPING
   // {
   //   initial_pos = measured_q_;
 
@@ -411,7 +557,7 @@ void update(HumanoidStateMachine::State current_state, HumanoidStateMachine::Sta
   // }
 
   // Set to initial position.
-  if (global_time < INITIAL_TIME)
+  if (global_time < INITIAL_TIME) // ZERO_POS
   {
     for (int i = 0; i < N_HAND_JOINTS; i++)
     {
@@ -435,7 +581,7 @@ void update(HumanoidStateMachine::State current_state, HumanoidStateMachine::Sta
     return;
   }
 
-  if (global_time < START_TO_WALK_TIME)
+  if (global_time < START_TO_WALK_TIME) 
   {
 
     EulerAngle euler = QuaternionToEuler(Quaternion{quat_est[0], quat_est[1], quat_est[2], quat_est[3]});
@@ -586,17 +732,18 @@ void update(HumanoidStateMachine::State current_state, HumanoidStateMachine::Sta
     torque[N_HAND_JOINTS + i] = 0.0;
   }
 
-  for (int i : {4, 5, 10, 11})
+  for (int i : {4, 5, 10, 11}) // ankle_pitch, ankle_roll
   {
     kp[N_HAND_JOINTS + i] = 15.0;
     kd[N_HAND_JOINTS + i] = 10.0;
   }
 
-  for (int i : {2, 3, 8, 9})
+  for (int i : {2, 3, 8, 9}) // leg_pitch, leg_knee
   {
     kp[N_HAND_JOINTS + i] = 350.0;
     kd[N_HAND_JOINTS + i] = 10.0;
   }
+  
   sendJointCommand(pos_des, vel_des, kp, kd, torque);
   return;
 }
@@ -607,21 +754,25 @@ void processKeyboardInput(char ch)
   if (ch == 'w')
   {
     user_cmd.x = std::min(0.6, user_cmd.x + 0.1);
+    LOGFMTD("User_cmd.x: %f", user_cmd.x);
     user_cmd.move = 1.;
   }
   if (ch == 's')
   {
-    user_cmd.x = std::max(-0.4, user_cmd.x - 0.1);
+    user_cmd.x = std::max(-0.2, user_cmd.x - 0.1);
+    LOGFMTD("User_cmd.x: %f", user_cmd.x);
     user_cmd.move = 1.;
   }
   if (ch == 'a')
   {
-    user_cmd.y = std::min(0.5, user_cmd.y + 0.1);
+    user_cmd.y = std::min(0.4, user_cmd.y + 0.1);
+    LOGFMTD("User_cmd.y: %f", user_cmd.y);
     user_cmd.move = 1.;
   }
   if (ch == 'd')
   {
-    user_cmd.y = std::max(-0.5, user_cmd.y - 0.1);
+    user_cmd.y = std::max(-0.4, user_cmd.y - 0.1);
+    LOGFMTD("User_cmd.y: %f", user_cmd.y);
     user_cmd.move = 1.;
   }
 
@@ -736,14 +887,17 @@ int main(int argc, char **argv)
   }
 
   HumanoidStateMachine state_machine(nh);
+  std::vector<JointConfig> default_joints;
+  if(!loadJointConfigs(nh, "default_joints", default_joints))
+  {   
+    return -1; // return -1 if failed to load joint configurations
+  }
 
   std::thread inputThread(handleInput);
   while (ros::ok())
   {
     auto start_time = std::chrono::steady_clock::now();
-    auto current_state = state_machine.getCurrentState(); // Get the current state of the state machine
-    auto previous_state = state_machine.getPreviousState(); // Get the previous state of the state machine
-    update(current_state, previous_state);
+    update(state_machine, default_joints);
 
     auto duration = std::chrono::steady_clock::now() - start_time;
     auto micro_sec = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
