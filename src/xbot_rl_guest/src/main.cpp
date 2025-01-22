@@ -48,7 +48,9 @@ const float ins_hand_upper_from_thumb[12] = {2.878, 0.9878, 3.0718, 3.0718, 3.07
 const float ins_hand_lower_from_thumb[12] = {1.58825, -0.2094, 0.349, 0.349, 0.349, 0.349, 1.58825, -0.2094, 0.349, 0.349, 0.349, 0.349};   // 下限，从大拇指开始，左手在前
 bool handless_ = false;
 bool is_transitioning = false;
-int transition_start_cycle = 0;
+int transition_start_time = 0;
+int start_to_walk_time = 0;
+
 void handsNormalize(const std::vector<double> &hand_pos, std::vector<double> &hand_pos_norm)
 {
   if ((hand_pos.size() != 12) || (hand_pos_norm.size() != 12))
@@ -381,19 +383,28 @@ void update(HumanoidStateMachine &state_machine, std::vector<JointConfig> &defau
 
   constexpr int STARTUP_TIME = 100;
   constexpr int INITIAL_TIME = 500;
-  constexpr int START_TO_WALK_TIME = 2000;
-
+  // constexpr int START_TO_WALK_TIME = 2000;
+  constexpr double MIN_CLIP = -18.0;
+  constexpr double MAX_CLIP = 18.0;
+  EulerAngle euler;
   static std::array<double, N_LEG_JOINTS> last_action;
   static std::vector<double> initial_pos;
   static std::vector<double> stand_pos;
-  
+  double base_yaw = 0.0;
+  double cycle_time = 0.64;
+  double cmd_x = 0.0;
+  double cmd_y = 0.0;
+  double target_yaw_angular = 0.0;
+
   std::vector<double> pos_des, vel_des, kp, kd, torque;
   pos_des.resize(N_JOINTS);
   vel_des.resize(N_JOINTS);
   kp.resize(N_JOINTS);
   kd.resize(N_JOINTS);
   torque.resize(N_JOINTS);
-
+  
+  std::vector<double> curr_obs;
+  curr_obs.reserve(N_POLICY_OBS);
   if(!handless_)
   {
     sendHandCommand(cmd_ins_hand_pos);
@@ -447,11 +458,11 @@ void update(HumanoidStateMachine &state_machine, std::vector<JointConfig> &defau
       {
         // start transition
         is_transitioning = true;
-        transition_start_cycle = global_time;
+        transition_start_time = global_time;
         initial_pos = measured_q_; // record the initial position of the transition
       }
       if(is_transitioning) {
-        double percentage = double(global_time - transition_start_cycle) / (INITIAL_TIME - STARTUP_TIME);
+        double percentage = double(global_time - transition_start_time) / (INITIAL_TIME - STARTUP_TIME);
         if(percentage > 1.0)
         {
           percentage = 1.0;
@@ -480,9 +491,8 @@ void update(HumanoidStateMachine &state_machine, std::vector<JointConfig> &defau
         }
         // sendJointCommand(pos_des, vel_des, kp, kd, torque);
         LOGFMTW("Transitioning from DAMPING mode to ZERO_POS mode, percentage: %.2f", percentage);
-        return;
       } else {
-        EulerAngle euler = QuaternionToEuler(Quaternion{quat_est[0], quat_est[1], quat_est[2], quat_est[3]});
+        euler = QuaternionToEuler(Quaternion{quat_est[0], quat_est[1], quat_est[2], quat_est[3]});
         // base_yaw += euler.yaw * -1.0;
         hist_yaw.push_back(euler.yaw * -1.0);
 
@@ -510,11 +520,11 @@ void update(HumanoidStateMachine &state_machine, std::vector<JointConfig> &defau
         }
         // sendJointCommand(pos_des, vel_des, kp, kd, torque);
         LOGFMTD("Keep ZERO_POS MODE, global_time: %d", global_time);
-        return;
-    }
+      }
+      return;
     case HumanoidStateMachine::STAND:
       LOGD("STAND MODE LOGIC....................");
-      EulerAngle euler = QuaternionToEuler(Quaternion{quat_est[0], quat_est[1], quat_est[2], quat_est[3]});
+      euler = QuaternionToEuler(Quaternion{quat_est[0], quat_est[1], quat_est[2], quat_est[3]});
       // base_yaw += euler.yaw * -1.0;
       hist_yaw.push_back(euler.yaw * -1.0);
 
@@ -545,208 +555,142 @@ void update(HumanoidStateMachine &state_machine, std::vector<JointConfig> &defau
       return;
     case HumanoidStateMachine::WALK:
       LOGD("WALK MODE");
-      break;
+      if(start_to_walk_time == 0)
+      {
+        start_to_walk_time = global_time;
+        LOGFMTI("Start to walk cycle: %d", start_to_walk_time);
+      }
+      
+      euler = QuaternionToEuler(Quaternion{quat_est[0], quat_est[1], quat_est[2], quat_est[3]});
+
+      cycle_time = local_cmd.cycle_time;
+      curr_obs.push_back(sin(2 * PI * (global_time - start_to_walk_time) * (1.0 / CONTROL_FREQUENCY) / cycle_time));
+      LOGFMTD("Received Obs[0] sin_p: %f", curr_obs[0]);
+      curr_obs.push_back(cos(2 * PI * (global_time - start_to_walk_time) * (1.0 / CONTROL_FREQUENCY) / cycle_time));
+      LOGFMTD("Received Obs[1] cos_p: %f", curr_obs[1]);
+      if (local_cmd.move == 0)
+      {
+        // base_yaw = euler.yaw * -1.0;
+        hist_yaw.push_back(euler.yaw * -1.0);
+      }
+
+      // double mean = sum / hist_yaw.size();
+      if (hist_yaw.size() > YAW_HIST_LENGTH)
+      {
+        hist_yaw.pop_front();
+      }
+      base_yaw = std::accumulate(hist_yaw.begin(), hist_yaw.end(), 0.0) / hist_yaw.size();
+
+      cmd_x = 2 * local_cmd.x;
+      cmd_y = 2 * local_cmd.y;
+      target_yaw_angular = -0.5 * ((euler.yaw * -1.0 - base_yaw) - local_cmd.yaw) * local_cmd.move; // heading command
+      curr_obs.push_back(cmd_x);
+      LOGFMTD("Received Obs[2] 2 * cmd_x: %f", curr_obs[2]);
+      curr_obs.push_back(cmd_y);
+      LOGFMTD("Received Obs[3] 2 * cmd_y: %f", curr_obs[3]);
+
+      curr_obs.push_back(clip(target_yaw_angular, -0.4, 0.4));
+      LOGFMTD("Received Obs[4] cliped target_yaw_angular: %f", curr_obs[4]);
+
+      for (int i = 0; i < N_LEG_JOINTS; i++)
+      {
+        LOGFMTD("Received Obs[%d] measured_joint_pos[%d]: %f", 5 + i, i, curr_obs[5 + i]);
+        curr_obs.push_back(1.0 * measured_q_[6 + N_HAND_JOINTS + i]);
+      }
+
+      for (int i = 0; i < N_LEG_JOINTS; i++)
+      {
+        LOGFMTD("Received Obs[%d] measured_joint_vel[%d]: %f", 5 + i + N_LEG_JOINTS, i, curr_obs[5 + i + N_LEG_JOINTS]);
+        curr_obs.push_back(0.05 * clip(measured_v_[6 + N_HAND_JOINTS + i], -14., 14.));
+      }
+
+      for (int i = 0; i < N_LEG_JOINTS; i++)
+      {
+        LOGFMTD("Received Obs[%d] measured_joint_last_action[%d]: %f", 5 + i + N_LEG_JOINTS * 2, i, curr_obs[5 + i + N_LEG_JOINTS * 2]);
+        curr_obs.push_back(last_action[i]);
+      }
+
+      for (int i = 0; i < 3; i++)
+      {
+        LOGFMTD("Received Obs[%d] angular_vel_local[%d]: %f", 5 + i + N_LEG_JOINTS * 3, i, curr_obs[5 + i + N_LEG_JOINTS * 3]);
+        curr_obs.push_back(angular_vel_local[i] * (i > 0 ? -1 : 1));
+      }
+      curr_obs.push_back(euler.roll);
+      LOGFMTD("Received Obs[%d] euler.roll: %f", 5 + 3 + N_LEG_JOINTS * 3, euler.roll);
+      curr_obs.push_back(euler.pitch * -1.0);
+      LOGFMTD("Received Obs[%d] euler.pitch: %f", 5 + 4 + N_LEG_JOINTS * 3, euler.pitch * -1.0);
+      curr_obs.push_back(euler.yaw * -1.0 - base_yaw);
+      LOGFMTD("Received Obs[%d] euler.yaw: %f", 5 + 5 + N_LEG_JOINTS * 3, euler.yaw * -1.0 - base_yaw);
+
+
+      hist_obs.push_back(curr_obs);
+      hist_obs.pop_front();
+
+      for (int i = 0; i < (int)hist_obs.size(); i++)
+      {
+        for (int j = 0; j < (int)hist_obs[0].size(); j++)
+        {
+          obs_buffer << "," << hist_obs[i][j];
+          tmp_obs.index_put_({i * (int)hist_obs[0].size() + j}, hist_obs[i][j]);
+        }
+      }
+      obs_buffer << '\n';
+
+      tensor[0] = tmp_obs.unsqueeze(0).clamp(MIN_CLIP, MAX_CLIP);
+      // out, critic_obs = policy.forward(tensor);
+      out = policy.forward(tensor).toTensor().index({0});
+      for (int i = 0; i < N_LEG_JOINTS; i++)
+      {
+        double unclipped_action = out.index({i}).item().toFloat();
+        double clipped_action = std::min(std::max(MIN_CLIP, unclipped_action), MAX_CLIP);
+        last_action[i] = clipped_action;
+      }
+
+
+      for (int i = 0; i < N_HAND_JOINTS; i++)
+      {
+        kp[i] = 200.0;
+        kd[i] = 10.0;
+        pos_des[i] = 0.0;
+        vel_des[i] = 0.0;
+        torque[i] = 0.0;
+        if (i == 16 || i == 17)
+        {
+          kp[i] = 400.0;
+          kd[i] = 10.0;
+        }
+      }
+
+      LOGD("Output action! +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+      for (int i = 0; i < N_LEG_JOINTS; i++)
+      {
+        kp[N_HAND_JOINTS + i] = 200.0;
+        kd[N_HAND_JOINTS + i] = 10.0;
+        pos_des[N_HAND_JOINTS + i] = 0.25 * last_action[i];
+        LOGFMTD("leg joint[%d] pos_des:%f", N_HAND_JOINTS + i, pos_des[N_HAND_JOINTS + i]);
+        vel_des[N_HAND_JOINTS + i] = 0.0;
+        torque[N_HAND_JOINTS + i] = 0.0;
+      }
+
+      for (int i : {4, 5, 10, 11}) // ankle_pitch, ankle_roll
+      {
+        kp[N_HAND_JOINTS + i] = 15.0;
+        kd[N_HAND_JOINTS + i] = 10.0;
+      }
+
+      for (int i : {2, 3, 8, 9}) // leg_pitch, leg_knee
+      {
+        kp[N_HAND_JOINTS + i] = 350.0;
+        kd[N_HAND_JOINTS + i] = 10.0;
+      }
+      
+      sendJointCommand(pos_des, vel_des, kp, kd, torque);
+      return;
+    default:
+      LOGE("Unknown state!");
+      return;
   }
-  
-  // if (global_time < STARTUP_TIME) // DAMPING
-  // {
-  //   initial_pos = measured_q_;
-
-  //   sendJointCommand(pos_des, vel_des, kp, kd, torque);
-  //   return;
-  // }
-
-  // Set to initial position.
-  if (global_time < INITIAL_TIME) // ZERO_POS
-  {
-    for (int i = 0; i < N_HAND_JOINTS; i++)
-    {
-      kp[i] = 200.0;
-      kd[i] = 10.0;
-      pos_des[i] = initial_pos[6 + i] + double(global_time - STARTUP_TIME) / double(INITIAL_TIME - STARTUP_TIME) * (0.0 - initial_pos[6 + i]);
-      vel_des[i] = 0.0;
-      torque[i] = 0.0;
-    }
-
-    for (int i = 0; i < N_LEG_JOINTS; i++)
-    {
-      kp[N_HAND_JOINTS + i] = 300.0;
-      kd[N_HAND_JOINTS + i] = 10.0;
-      pos_des[N_HAND_JOINTS + i] = initial_pos[6 + N_HAND_JOINTS + i] + double(global_time - STARTUP_TIME) / double(INITIAL_TIME - STARTUP_TIME) * (0.0 - initial_pos[6 + N_HAND_JOINTS + i]);
-      vel_des[N_HAND_JOINTS + i] = 0.0;
-      torque[N_HAND_JOINTS + i] = 0.0;
-    }
-
-    sendJointCommand(pos_des, vel_des, kp, kd, torque);
-    return;
-  }
-
-  if (global_time < START_TO_WALK_TIME) 
-  {
-
-    EulerAngle euler = QuaternionToEuler(Quaternion{quat_est[0], quat_est[1], quat_est[2], quat_est[3]});
-    // base_yaw += euler.yaw * -1.0;
-    hist_yaw.push_back(euler.yaw * -1.0);
-
-    if (hist_yaw.size() > YAW_HIST_LENGTH)
-    {
-      hist_yaw.pop_front();
-    }
-
-    for (int i = 0; i < N_HAND_JOINTS; i++)
-    {
-      kp[i] = 200.0;
-      kd[i] = 10.0;
-      pos_des[i] = 0.0;
-      vel_des[i] = 0.0;
-      torque[i] = 0.0;
-    }
-
-    for (int i = 0; i < N_LEG_JOINTS; i++)
-    {
-      kp[N_HAND_JOINTS + i] = 300.0;
-      kd[N_HAND_JOINTS + i] = 10.;
-      pos_des[N_HAND_JOINTS + i] = 0.0;
-      vel_des[N_HAND_JOINTS + i] = 0.0;
-      torque[N_HAND_JOINTS + i] = 0.0;
-    }
-
-    sendJointCommand(pos_des, vel_des, kp, kd, torque);
-    return;
-  }
-
-  std::vector<double> curr_obs;
-  curr_obs.reserve(N_POLICY_OBS);
-
-  EulerAngle euler = QuaternionToEuler(Quaternion{quat_est[0], quat_est[1], quat_est[2], quat_est[3]});
-
-  double cycle_time = local_cmd.cycle_time;
-  curr_obs.push_back(sin(2 * PI * (global_time - START_TO_WALK_TIME) * (1.0 / CONTROL_FREQUENCY) / cycle_time));
-  LOGFMTD("Received Obs[0] sin_p: %f", curr_obs[0]);
-  curr_obs.push_back(cos(2 * PI * (global_time - START_TO_WALK_TIME) * (1.0 / CONTROL_FREQUENCY) / cycle_time));
-  LOGFMTD("Received Obs[1] cos_p: %f", curr_obs[1]);
-  if (local_cmd.move == 0)
-  {
-    // base_yaw = euler.yaw * -1.0;
-    hist_yaw.push_back(euler.yaw * -1.0);
-  }
-
-  // double mean = sum / hist_yaw.size();
-  if (hist_yaw.size() > YAW_HIST_LENGTH)
-  {
-    hist_yaw.pop_front();
-  }
-  double base_yaw = std::accumulate(hist_yaw.begin(), hist_yaw.end(), 0.0) / hist_yaw.size();
-
-  double cmd_x = 2 * local_cmd.x;
-  double cmd_y = 2 * local_cmd.y;
-  double target_yaw_angular = -0.5 * ((euler.yaw * -1.0 - base_yaw) - local_cmd.yaw) * local_cmd.move; // heading command
-  curr_obs.push_back(cmd_x);
-  LOGFMTD("Received Obs[2] 2 * cmd_x: %f", curr_obs[2]);
-  curr_obs.push_back(cmd_y);
-  LOGFMTD("Received Obs[3] 2 * cmd_y: %f", curr_obs[3]);
-
-  curr_obs.push_back(clip(target_yaw_angular, -0.4, 0.4));
-  LOGFMTD("Received Obs[4] cliped target_yaw_angular: %f", curr_obs[4]);
-
-  for (int i = 0; i < N_LEG_JOINTS; i++)
-  {
-    LOGFMTD("Received Obs[%d] measured_joint_pos[%d]: %f", 5 + i, i, curr_obs[5 + i]);
-    curr_obs.push_back(1.0 * measured_q_[6 + N_HAND_JOINTS + i]);
-  }
-
-  for (int i = 0; i < N_LEG_JOINTS; i++)
-  {
-    LOGFMTD("Received Obs[%d] measured_joint_vel[%d]: %f", 5 + i + N_LEG_JOINTS, i, curr_obs[5 + i + N_LEG_JOINTS]);
-    curr_obs.push_back(0.05 * clip(measured_v_[6 + N_HAND_JOINTS + i], -14., 14.));
-  }
-
-  for (int i = 0; i < N_LEG_JOINTS; i++)
-  {
-    LOGFMTD("Received Obs[%d] measured_joint_last_action[%d]: %f", 5 + i + N_LEG_JOINTS * 2, i, curr_obs[5 + i + N_LEG_JOINTS * 2]);
-    curr_obs.push_back(last_action[i]);
-  }
-
-  for (int i = 0; i < 3; i++)
-  {
-    LOGFMTD("Received Obs[%d] angular_vel_local[%d]: %f", 5 + i + N_LEG_JOINTS * 3, i, curr_obs[5 + i + N_LEG_JOINTS * 3]);
-    curr_obs.push_back(angular_vel_local[i] * (i > 0 ? -1 : 1));
-  }
-  curr_obs.push_back(euler.roll);
-  LOGFMTD("Received Obs[%d] euler.roll: %f", 5 + 3 + N_LEG_JOINTS * 3, euler.roll);
-  curr_obs.push_back(euler.pitch * -1.0);
-  LOGFMTD("Received Obs[%d] euler.pitch: %f", 5 + 4 + N_LEG_JOINTS * 3, euler.pitch * -1.0);
-  curr_obs.push_back(euler.yaw * -1.0 - base_yaw);
-  LOGFMTD("Received Obs[%d] euler.yaw: %f", 5 + 5 + N_LEG_JOINTS * 3, euler.yaw * -1.0 - base_yaw);
-
-
-  hist_obs.push_back(curr_obs);
-  hist_obs.pop_front();
-
-  for (int i = 0; i < (int)hist_obs.size(); i++)
-  {
-    for (int j = 0; j < (int)hist_obs[0].size(); j++)
-    {
-      obs_buffer << "," << hist_obs[i][j];
-      tmp_obs.index_put_({i * (int)hist_obs[0].size() + j}, hist_obs[i][j]);
-    }
-  }
-  obs_buffer << '\n';
-
-  constexpr double MIN_CLIP = -18.0;
-  constexpr double MAX_CLIP = 18.0;
-  tensor[0] = tmp_obs.unsqueeze(0).clamp(MIN_CLIP, MAX_CLIP);
-  // out, critic_obs = policy.forward(tensor);
-  auto output = policy.forward(tensor);
-  out = output.toTensor().index({0});
-  for (int i = 0; i < N_LEG_JOINTS; i++)
-  {
-    double unclipped_action = out.index({i}).item().toFloat();
-    double clipped_action = std::min(std::max(MIN_CLIP, unclipped_action), MAX_CLIP);
-    last_action[i] = clipped_action;
-  }
-
-
-  for (int i = 0; i < N_HAND_JOINTS; i++)
-  {
-    kp[i] = 200.0;
-    kd[i] = 10.0;
-    pos_des[i] = 0.0;
-    vel_des[i] = 0.0;
-    torque[i] = 0.0;
-    if (i == 16 || i == 17)
-    {
-      kp[i] = 400.0;
-      kd[i] = 10.0;
-    }
-  }
-
-  LOGD("Output action! +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
-  for (int i = 0; i < N_LEG_JOINTS; i++)
-  {
-    kp[N_HAND_JOINTS + i] = 200.0;
-    kd[N_HAND_JOINTS + i] = 10.0;
-    pos_des[N_HAND_JOINTS + i] = 0.25 * last_action[i];
-    LOGFMTD("leg joint[%d] pos_des:%f", N_HAND_JOINTS + i, pos_des[N_HAND_JOINTS + i]);
-    vel_des[N_HAND_JOINTS + i] = 0.0;
-    torque[N_HAND_JOINTS + i] = 0.0;
-  }
-
-  for (int i : {4, 5, 10, 11}) // ankle_pitch, ankle_roll
-  {
-    kp[N_HAND_JOINTS + i] = 15.0;
-    kd[N_HAND_JOINTS + i] = 10.0;
-  }
-
-  for (int i : {2, 3, 8, 9}) // leg_pitch, leg_knee
-  {
-    kp[N_HAND_JOINTS + i] = 350.0;
-    kd[N_HAND_JOINTS + i] = 10.0;
-  }
-  
-  sendJointCommand(pos_des, vel_des, kp, kd, torque);
-  return;
-}
+} 
 
 void processKeyboardInput(char ch)
 {
